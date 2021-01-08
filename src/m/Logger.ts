@@ -3,11 +3,12 @@ import {oldConsoleLog, rl} from "../index";
 import {CursorPos} from "readline";
 import * as readline from "readline";
 import {Communicator} from "./Communicator";
+import {Clamp} from "./util";
 
 function fillText(t : string) {
     let size = process.stdout.columns
     // console.log(size)
-    return t + ' '.repeat(size-t.length)
+    return t + ' '.repeat(Clamp(0,size-t.length,Number.MAX_SAFE_INTEGER))
 }
 
 class LoggerClass {
@@ -28,13 +29,18 @@ class LoggerClass {
         this.Store[id.toString()] = Communicator.SharedData['ConsoleLines']
     }
     UpdateDLog(id:number|string,t : string= "LOG", c:chalk.Chalk ,...s : string[]) {
-        let currpos = Communicator.SharedData['ConsoleLines']
+        let currpos = Communicator.SharedData['ConsoleLines'] ?? 0
         let oldPos = this.Store[id.toString()]
-        if (s.includes('\n')) Communicator.SharedData['ConsoleLines'] -= 1
-        readline.moveCursor(process.stdout,0,(oldPos)-(currpos+1))
+        let diffPos = (oldPos)-(currpos+1)
+        // console.log((Math.abs(currpos) - diffPos))
+        if (( Clamp(Math.abs(currpos),0,process.stdout.rows) - diffPos) < 0) return;
+        if (s.join('').includes('\n')) Communicator.SharedData['ConsoleLines'] -= s.join('').split(/\n/).length - 1
+
+        readline.moveCursor(process.stdout,0,diffPos)
         process.stdout.write(fillText(`[${c(t)}] > ${s.join(', ')}`))
         readline.moveCursor(process.stdout,0, (currpos+1)-oldPos)
         readline.cursorTo(process.stdout,0)
+
     }
 
 }

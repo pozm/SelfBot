@@ -2,14 +2,18 @@ import { Client } from "discord.js"
 import { readdirSync } from "fs"
 import { createConnection } from "mysql"
 import { MYSQLPASSWORD, token } from "./config"
-import {createInterface} from "readline";
+import {createInterface, emitKeypressEvents} from "readline";
 import {commands} from "./m/CommandLoader";
 import {Communicator} from "./m/Communicator";
 import {Logger} from "./m/Logger";
 import chalk from "chalk";
 import {HookStdout} from "./m/util";
 import {createContext, runInContext, runInNewContext, Script} from "vm";
+import {join} from "path"
+import {createRequire} from "module"
 
+// type
+type keypress_key = {name:string,sequence:string,ctrl:boolean,meta:boolean,shift:boolean}
 
 export const rl = createInterface({
     input: process.stdin,
@@ -30,6 +34,8 @@ export const con = createConnection({
 Communicator.SharedData['ConsoleLines'] = (Communicator.SharedData['ConsoleLines'] ?? 0) + commands.size
 
 HookStdout()
+emitKeypressEvents(process.stdin);
+process.stdin.setRawMode(true);
 
 Logger.DLog('msqllog','SQL', chalk.rgb(82,235,23),'Logging into mysql..\n')
 con.on('connect',()=> Logger.UpdateDLog('msqllog','SQL', chalk.rgb(82,235,23),'Logged into mysql.'))
@@ -41,6 +47,7 @@ con.query(`create table if not exists Images.Hentai
                Type int        null
            );
 `);
+
 
 
 function completer(line :string ) {
@@ -83,30 +90,65 @@ if (require.main === module ) {
         let command = commands.get(commandName ?? "")
         if (! command ) console.log("invalid command");
         else {
-            console.log = Logger.Custom.CommandInternal.bind(this,commandName)
-            await command.call(this,args,line,client)
-            console.log = Logger.Log.bind(this,undefined)
+            let console_mod = {...console}
+            console_mod.log = Logger.Custom.CommandInternal.bind(this,commandName)
+            let scrpt = new Script(command + `;this.__internal_exit_state = main(...__Imported_Args).then(r=>this.__internal_exit_state=[true,r],e=>this.__internal_exit_state=[false,e]);`)
+            let require_mod = createRequire(join(__dirname,"./c/"+commandName+".js"))
+            let ctx = createContext({require:require_mod,console:console_mod,exports, setInterval,clearInterval ,process,__interl_location:join(__dirname,"./c/internal"),__Imported_Args:[args,line,client]})
+            try {
+                scrpt.runInContext(ctx, {
+                    filename: commandName+".js",
+
+                    displayErrors: true,
+                })
+
+                let exit : [boolean, any] = await ctx.__internal_exit_state
+
+                console_mod.log(exit[0] ? `✔${ typeof exit[1] === "string" ? ` | ${exit[1]}` : ""}` : `❌ | ${exit[1]}`)
+            } catch (e) {
+                console.log(chalk.red("Unable to execute " + commandName + "due to errors : " + e))
+            }
         }
-
         rl.prompt(false);
+    });
+
+    process.stdin.on("keypress",(str:string,key:keypress_key) => {
+        // console.log(str,key)
+        if (key.ctrl && key.name == "f") {
+
+        }
     })
+    let int:NodeJS.Timeout;
+    if ((process.env?.discord ?? true) == true) {
+        client.login(token)
 
-
-    client.login(token)
-
-    Logger.DLog("login","CLIENT",chalk.cyan,"Logging in\n")
-    let m = 0
-    let s = ['-','\\','|','/']
-    let int = setInterval(()=>{Logger.UpdateDLog("login","CLIENT",chalk.cyan,`Logging in ${ chalk.magentaBright(s[m++ % 4])}`);},500)
+        Logger.DLog("login", "CLIENT", chalk.cyan, "Logging in\n")
+        let m = 0
+        let s = ['-', '\\', '|', '/']
+        int = setInterval(() => {
+            Logger.UpdateDLog("login", "CLIENT", chalk.cyan, `Logging in ${chalk.magentaBright(s[m++ % 4])}`);
+        }, 500)
+    } else {
+        Logger.Log(undefined,"Running without discord, most builtin commands will not work!")
+        rl.resume()
+    }
 
     Communicator.on("load",()=>{
 
         clearInterval(int)
 
         Logger.UpdateDLog("login","CLIENT",chalk.cyan,`Logged into ${client.user.username}\n`)
-        Logger.Log(undefined,`Welcome, ${client.user.username}. It is ${new Date().toLocaleTimeString("en-gb",{hour12:true})}`)
+        Logger.Log(undefined,`Welcome, ${client.user.username}. It is ${new Date().toLocaleTimeString("en-gb",{hour12:true}).slice(0,-3)}`)
 
         // console.log(Communicator.SharedData['ConsoleLogs'], Communicator.SharedData['ConsoleLines'])
+
+        // let cntr = 0
+        // Logger.DLog('counter',"cnt",chalk.red,cntr.toString()+"\n")
+        //
+        // setInterval(()=> {
+        //     cntr++;
+        //     Logger.UpdateDLog('counter', "cnt", chalk.red, cntr.toString()+"\n")
+        // },1e3)
 
         rl.resume()
 

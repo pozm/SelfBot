@@ -1,6 +1,8 @@
 import { Client } from "discord.js";
+import {Logger} from "../m/Logger";
 
 async function main ( args: string[] , line : string, client : Client ) {
 
-    console.log(line, args);
+    Logger.Log(undefined,"test")
+
 }
